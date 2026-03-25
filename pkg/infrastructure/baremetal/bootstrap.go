@@ -73,8 +73,16 @@ func newDomain(name string) libvirtxml.Domain {
 			Port: &targetPort,
 		},
 	}
-
 	domainDef.Devices.Consoles = append(domainDef.Devices.Consoles, console)
+
+	serialLogPath := fmt.Sprintf("/var/log/libvirt/qemu/%s-serial0.log", name)
+	serial := libvirtxml.DomainSerial{
+		Log: &libvirtxml.DomainChardevLog{
+			File:   serialLogPath,
+			Append: "on",
+		},
+	}
+	domainDef.Devices.Serials = append(domainDef.Devices.Serials, serial)
 
 	domainDef.Devices.Graphics = []libvirtxml.DomainGraphic{
 		{
@@ -233,7 +241,8 @@ func createLiveVolume(virConn *libvirt.Libvirt, config baremetalConfig, pool lib
 		return libvirt.StorageVol{}, fmt.Errorf("failed to get libvirt capabilities: %w", err)
 	}
 
-	isoFile, err := getLiveISO(config, capabilities.Host.CPU.Arch)
+	arch := capabilities.Host.CPU.Arch
+	isoFile, err := getLiveISO(config, arch)
 	if err != nil {
 		return libvirt.StorageVol{}, err
 	}
@@ -243,7 +252,16 @@ func createLiveVolume(virConn *libvirt.Libvirt, config baremetalConfig, pool lib
 	if err != nil {
 		return libvirt.StorageVol{}, err
 	}
+	consoleDevice := map[string]string{
+		"x86_64":  "ttyS0",
+		"aarch64": "ttyAMA0",
+		"s390x":   "ttysclp0",
+		"ppc64le": "hvc0",
+	}
 	var kargs string
+	if dev, ok := consoleDevice[arch]; ok {
+		kargs += " console=" + dev
+	}
 	if config.FIPS {
 		kargs += " fips=1"
 	}
